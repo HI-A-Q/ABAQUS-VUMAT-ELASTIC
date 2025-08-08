@@ -1,0 +1,125 @@
+C
+C User subroutine VUMAT
+      subroutine vumat (
+C Read only (unmodifiable)variables -
+     1  nblock, ndir, nshr, nstatev, nfieldv, nprops, lanneal,
+     2  stepTime, totalTime, dt, cmname, coordMp, charLength,
+     3  props, density, strainInc, relSpinInc,
+     4  tempOld, stretchOld, defgradOld, fieldOld,
+     5  stressOld, stateOld, enerInternOld, enerInelasOld,
+     6  tempNew, stretchNew, defgradNew, fieldNew,
+C Write only (modifiable) variables -
+     7  stressNew, stateNew, enerInternNew, enerInelasNew )
+C
+      include 'vaba_param.inc'
+C
+      dimension props(nprops), density(nblock), coordMp(nblock,*),
+     1  charLength(nblock), strainInc(nblock,ndir+nshr),
+     2  relSpinInc(nblock,nshr), tempOld(nblock),
+     3  stretchOld(nblock,ndir+nshr),
+     4  defgradOld(nblock,ndir+nshr+nshr),
+     5  fieldOld(nblock,nfieldv), stressOld(nblock,ndir+nshr),
+     6  stateOld(nblock,nstatev), enerInternOld(nblock),
+     7  enerInelasOld(nblock), tempNew(nblock),
+     8  stretchNew(nblock,ndir+nshr),
+     8  defgradNew(nblock,ndir+nshr+nshr),
+     9  fieldNew(nblock,nfieldv),
+     1  stressNew(nblock,ndir+nshr), stateNew(nblock,nstatev),
+     2  enerInternNew(nblock), enerInelasNew(nblock)
+      
+      character*80 cmname
+      
+
+      parameter(one = 1.d0, two = 2.d0, three = 3.d0, 
+     *    two_thirds = 2.d0 / 3.d0, third = 1.d0 / 3.d0)
+      
+      c10 = props(1)
+      d1 = props(2)
+
+      mu = two * c10
+      lamda = two / d1 - third * two * mu
+
+      
+      if (totalTime .eq. zero) then
+          do k = 1, nblock
+             trace = strainInc(k, 1) + strainInc(k, 2) + strainInc(k, 3)
+             stressNew(k, 1) = stressOld(k, 1) + lamda * trace + 
+     *                         two * mu * strainInc(k, 1)
+             stressNew(k, 2) = stressOld(k, 2) + lamda * trace + 
+     *                         two * mu * strainInc(k, 2)
+             stressNew(k, 3) = stressOld(k, 3) + lamda * trace + 
+     *                         two * mu * strainInc(k, 3)
+             stressNew(k, 4) = stressOld(k, 4) + two * mu * 
+     *                         strainInc(k, 4)
+          end do
+          if (nshr .gt. 1) then
+              do k = 1, nblock
+                  stressNew(k, 5) = stressOld(k, 5) + two * mu *
+     *                              strainInc(k, 5)
+                  stressNew(k, 6) = stressOld(k, 6) + two * mu * 
+     *                              strainInc(k, 6)
+              end do
+          end if
+          return
+      end if
+              
+              
+      if (nshr .gt. 1) then
+          do k = 1, nblock
+              Q = stretchNew(k,3) * (stretchNew(k,1) * stretchNew(k,2) 
+     *            - stretchNew(k,4) * stretchNew(k,4)) + 
+     *            stretchNew(k,6) * (stretchNew(k,4) * stretchNew(k,5) -
+     *            stretchNew(k,6) * stretchNew(k,2)) -
+     *            stretchNew(k,5) * (stretchNew(k,1) * stretchNew(k,5) -
+     *            stretchNew(k,6) * stretchNew(k,4))
+              J_inv = one / Q
+              factor = mu * J_inv
+              d_inv = one / d1
+
+              xpow = exp( - log (Q) * two_thirds )
+              
+              bxx = stretchNew(k,1) * stretchNew(k,1) + stretchNew(k,4)
+     *              * stretchNew(k,4) + stretchNew(k,6) * 
+     *              stretchNew(k,6)           
+              byy = stretchNew(k,4) * stretchNew(k,4) + stretchNew(k,2) 
+     *              * stretchNew(k,2) + stretchNew(k,5) *
+     *              stretchNew(k,5)          
+              bzz = stretchNew(k,6) * stretchNew(k,6) + stretchNew(k,5) 
+     *               * stretchNew(k,5) + stretchNew(k,3) *
+     *              stretchNew(k,3)
+              bxy = stretchNew(k,1) * stretchNew(k,4) + stretchNew(k,2)
+     *              * stretchNew(k,4) + stretchNew(k,5)
+     *              * stretchNew(k,6)  
+              bxz = stretchNew(k,1) * stretchNew(k,6) + stretchNew(k,4)
+     *              * stretchNew(k,5) + stretchNew(k,3)
+     *              * stretchNew(k,6)  
+              byz = stretchNew(k,6) * stretchNew(k,4) + stretchNew(k,2)
+     *              * stretchNew(k,5) + stretchNew(k,5)
+     *              * stretchNew(k,3)  
+                    
+              bxx = bxx * xpow
+              byy = byy * xpow        
+              bzz = bzz * xpow
+              bxy = bxy * xpow 
+              bxz = bxz * xpow 
+              byz = byz * xpow
+              bi = (bxx + byy + bzz ) * third
+              b = bxx + byy + bzz
+        
+              du = (Q - one) * d_inv * two
+              
+              stressNew(k, 1) = factor * (bxx - bi) + du
+              stressNew(k, 2) = factor * (byy - bi) + du
+              stressNew(k, 3) = factor * (bzz - bi) + du
+              stressNew(k, 4) = factor * bxy
+              stressNew(k, 5) = factor * byz
+              stressNew(k, 6) = factor * bxz
+              
+              enerInternNew(k) = c10 * (b - three) + d_inv *
+     *                           (Q - one) ** 2 
+              enerInternNew(k) = enerInternNew(k) / density(k)
+          end do
+      end if
+              
+      RETURN
+      END
